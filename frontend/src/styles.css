@@ -2491,8 +2491,140 @@ img {
 .receipt-actions-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   margin-top: 18px;
+}
+
+/* Quota Alert Banner */
+.receipt-quota-alert {
+  background-color: var(--vermilion-subtle);
+  border: 1.5px solid var(--vermilion-border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(227, 66, 34, 0.08);
+}
+
+.quota-alert-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.quota-alert-icon {
+  color: var(--vermilion);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.quota-alert-title-wrap {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quota-alert-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--vermilion-deep);
+  margin: 0;
+}
+
+.quota-alert-badge {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  background-color: rgba(227, 66, 34, 0.15);
+  color: var(--vermilion-deep);
+  border: 1px solid var(--vermilion-border);
+}
+
+.quota-alert-desc {
+  font-size: 0.84rem;
+  color: var(--text-main);
+  line-height: 1.55;
+  margin: 0 0 14px 0;
+}
+
+.quota-alert-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.quota-alert-actions .button.sm,
+.quota-alert-actions .ghost-button.sm {
+  padding: 7px 14px;
+  font-size: 0.8rem;
+}
+
+/* Sample Demo Button */
+.sample-demo-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border-radius: var(--radius-full);
+  border: 1.5px dashed var(--emerald-border);
+  background-color: var(--bg-canvas-light);
+  color: var(--primary-emerald);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sample-demo-pill-btn:hover:not(:disabled) {
+  background-color: var(--emerald-tint);
+  border-color: var(--primary-emerald);
+  transform: translateY(-1px);
+}
+
+.sample-demo-pill-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Sample Demo Visual Notice Banner */
+.sample-demo-notice-banner {
+  background: linear-gradient(135deg, rgba(227, 66, 34, 0.08) 0%, rgba(249, 235, 215, 0.6) 100%);
+  border: 2px solid var(--vermilion);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  margin-bottom: 18px;
+}
+
+.sample-demo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--vermilion);
+  color: #ffffff;
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  border-radius: var(--radius-xs);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.sample-demo-notice-banner p {
+  font-size: 0.82rem;
+  color: var(--text-main);
+  line-height: 1.5;
+  margin: 0;
+  font-weight: 600;
+}
+
+.sample-demo-card {
+  border-top: 3px solid var(--vermilion) !important;
 }
 
 /* Receipt AI Result Card */
@@ -2614,6 +2746,14 @@ img {
   align-items: center;
   gap: 5px;
   font-weight: 600;
+}
+
+.persisted-sample {
+  color: var(--vermilion-deep);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
 }
 
 /* Proof Right Side (Dual Ledger) */

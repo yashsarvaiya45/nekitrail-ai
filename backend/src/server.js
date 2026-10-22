@@ -10,6 +10,7 @@ import { campaigns, getCampaignsWithCapturedTotals, orderRegistry } from "./camp
 import {
   compareReceiptWithBudget,
   extractReceiptFromImage,
+  getSampleDemoReceiptReview,
   reviewReceipt,
   summarizeCampaign
 } from "./ai.js";
@@ -262,6 +263,12 @@ app.post("/api/ai/receipt-image-review", async (req, res, next) => {
   }
 });
 
+app.get("/api/ai/sample-receipt-demo", (req, res) => {
+  const campaignId = String(req.query?.campaignId || "community-water-filter");
+  const result = getSampleDemoReceiptReview(campaignId);
+  res.json(result);
+});
+
 app.get("/api/receipt-reviews", async (req, res, next) => {
   try {
     const campaignId = req.query?.campaignId ? String(req.query.campaignId) : undefined;
@@ -277,6 +284,12 @@ app.post("/api/receipt-reviews/:id/human-review", requireAuditorAuth, async (req
     const reviewId = String(req.params.id || "").trim();
     if (!reviewId) {
       return res.status(400).json({ error: "Review ID is required." });
+    }
+
+    if (reviewId.startsWith("sample-demo-")) {
+      return res.status(400).json({
+        error: "Cannot record human review on a sample demo receipt. Sample presentation mode cannot approve expenses or advance campaign milestones."
+      });
     }
 
     const decision = String(req.body?.decision || "").toUpperCase().trim();
@@ -546,8 +559,11 @@ app.get("/api/payments", async (_req, res, next) => {
 
 app.use((error, _req, res, _next) => {
   const status = Number(error.status) || 500;
-  if (status >= 500) console.error("API error:", error.message, error.providerDetails || "");
-  res.status(status).json({ error: error.message || "Unexpected server error." });
+  if (status >= 500) console.error("API error:", error.message);
+  res.status(status).json({
+    error: error.message || "Unexpected server error.",
+    code: error.code || undefined
+  });
 });
 
 const isRunningInTest =

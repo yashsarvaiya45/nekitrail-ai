@@ -78,6 +78,7 @@ function App() {
   const [receiptText, setReceiptText] = useState("Water testing service - 135 USD");
   const [receiptResult, setReceiptResult] = useState(null);
   const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptQuotaError, setReceiptQuotaError] = useState(null);
   const [payments, setPayments] = useState([]);
   const [storageMode, setStorageMode] = useState("mongodb");
 
@@ -329,6 +330,7 @@ function App() {
     setReceiptLoading(true);
     setReceiptResult(null);
     setReceiptImageResult(null);
+    setReceiptQuotaError(null);
     setError("");
     try {
       const response = await fetch(`${API}/api/ai/receipt-review`, {
@@ -337,7 +339,16 @@ function App() {
         body: JSON.stringify({ campaignId: currentCampaign.id, receiptText })
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Receipt review failed.");
+      if (!response.ok) {
+        if (response.status === 429 || data.code === "AI_QUOTA_EXHAUSTED") {
+          setReceiptQuotaError({
+            message: data.error || "Gemini API quota is currently exhausted.",
+            code: data.code || "AI_QUOTA_EXHAUSTED"
+          });
+          return;
+        }
+        throw new Error(data.error || "Receipt review failed.");
+      }
       setReceiptResult(data.review);
       if (data.storage) setStorageMode(data.storage);
 
@@ -347,6 +358,30 @@ function App() {
         .then((res) => setReceiptReviews(res.reviews || []))
         .catch(() => {});
       if (currentCampaign) fetchTimeline(currentCampaign.id);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setReceiptLoading(false);
+    }
+  }
+
+  async function loadSampleDemoReceipt() {
+    if (!currentCampaign) return;
+    setReceiptLoading(true);
+    setReceiptQuotaError(null);
+    setReceiptFileError("");
+    setError("");
+    try {
+      const response = await fetch(`${API}/api/ai/sample-receipt-demo?campaignId=${encodeURIComponent(currentCampaign.id)}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to load presentation sample receipt.");
+      setReceiptImageResult(data);
+      setReceiptResult(data.review);
+      setNotice(
+        language === "hi"
+          ? "नमूना प्रस्तुति रसीद लोड की गई (यह लाइव AI विश्लेषण नहीं है)"
+          : "Loaded presentation sample demo receipt (illustrative data · not a live AI analysis)"
+      );
     } catch (err) {
       setError(err.message);
     } finally {
@@ -365,6 +400,7 @@ function App() {
     setReceiptLoading(true);
     setReceiptResult(null);
     setReceiptImageResult(null);
+    setReceiptQuotaError(null);
     setError("");
     setReceiptFileError("");
 
@@ -389,7 +425,16 @@ function App() {
       });
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Receipt image extraction failed.");
+      if (!response.ok) {
+        if (response.status === 429 || data.code === "AI_QUOTA_EXHAUSTED") {
+          setReceiptQuotaError({
+            message: data.error || "Google Gemini multimodal API quota is temporarily exhausted.",
+            code: data.code || "AI_QUOTA_EXHAUSTED"
+          });
+          return;
+        }
+        throw new Error(data.error || "Receipt image extraction failed.");
+      }
 
       setReceiptImageResult(data);
       setReceiptResult(data.review);
@@ -443,6 +488,12 @@ function App() {
 
   async function handleAuthorizeReview(reviewId, decision) {
     if (!reviewId) return;
+    if (typeof reviewId === "string" && reviewId.startsWith("sample-demo-")) {
+      setError(language === "hi"
+        ? "नमूना प्रस्तुति रसीदें केवल अभ्यास के लिए हैं और इन्हें अनुमोदित या लेजर में दर्ज नहीं किया जा सकता।"
+        : "Sample demo receipts are for presentation practice only and cannot be submitted for human review or expense approval.");
+      return;
+    }
     if (!isAuditorAuthenticated) {
       setAuditorAuthError("Auditor authentication required to record review decisions.");
       setAuditorModalOpen(true);
@@ -1736,6 +1787,63 @@ function App() {
                 </button>
               </div>
 
+              {/* Gemini Quota Alert Banner */}
+              {receiptQuotaError && (
+                <div className="receipt-quota-alert" role="alert">
+                  <div className="quota-alert-header">
+                    <TriangleAlert size={18} className="quota-alert-icon" />
+                    <div className="quota-alert-title-wrap">
+                      <h4 className="quota-alert-title">
+                        {language === "hi"
+                          ? "Gemini AI API कोटा अस्थायी रूप से समाप्त हो गया है"
+                          : "Gemini AI API Quota Temporarily Exhausted"}
+                      </h4>
+                      <span className="quota-alert-badge">HTTP 429 · AI_QUOTA_EXHAUSTED</span>
+                    </div>
+                  </div>
+                  <p className="quota-alert-desc">
+                    {language === "hi"
+                      ? "Google Gemini API के इस मॉडल के लिए निःशुल्क अनुरोध सीमा (rate limit) समाप्त हो गई है। शेष एप्लिकेशन (PayPal सैंडबॉक्स, ऑडिट लेजर, टाइमलाइन) पूरी तरह काम कर रहा है। कोटा रीसेट होने पर (साधारणतः 1 मिनट में) आप पुनः प्रयास कर सकते हैं, या प्रस्तुति अभ्यास के लिए नमूना डेमो रसीद लोड कर सकते हैं।"
+                      : "The Google Gemini multimodal AI rate limit for this account has been reached. The rest of the application (PayPal Sandbox, audit ledger, impact timeline) remains fully operational. You can retry after the quota window resets (typically 1 minute), switch to manual text input, or load a presentation sample demo receipt."}
+                  </p>
+                  <div className="quota-alert-actions">
+                    <button
+                      type="button"
+                      className="button secondary sm"
+                      onClick={loadSampleDemoReceipt}
+                      disabled={receiptLoading}
+                    >
+                      <Sparkles size={14} />
+                      {language === "hi" ? "प्रस्तुति नमूना रसीद लोड करें" : "Load sample demo receipt"}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button sm"
+                      onClick={() => {
+                        setReceiptMode("text");
+                        setReceiptQuotaError(null);
+                      }}
+                    >
+                      <FileText size={14} />
+                      {language === "hi" ? "मैन्युअल टेक्स्ट मोड" : "Switch to manual text input"}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button sm"
+                      onClick={(e) => {
+                        setReceiptQuotaError(null);
+                        if (receiptMode === "image") reviewReceiptImage(e);
+                        else reviewReceipt(e);
+                      }}
+                      disabled={receiptLoading}
+                    >
+                      <RefreshCw size={14} />
+                      {language === "hi" ? "पुनः प्रयास करें" : "Retry analysis"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {receiptMode === "image" ? (
                 /* Image Upload Form */
                 <form className="receipt-image-form" onSubmit={reviewReceiptImage}>
@@ -1828,6 +1936,16 @@ function App() {
                           ? "रसीद का विश्लेषण और बजट मिलान"
                           : "Analyze receipt & compare with budget"}
                     </button>
+                    <button
+                      type="button"
+                      className="sample-demo-pill-btn"
+                      onClick={loadSampleDemoReceipt}
+                      disabled={receiptLoading || !currentCampaign}
+                      title={language === "hi" ? "प्रस्तुति अभ्यास के लिए नमूना रसीद परिणाम" : "Try sample demo receipt for presentation practice"}
+                    >
+                      <Sparkles size={13} />
+                      {language === "hi" ? "प्रस्तुति नमूना रसीद" : "Try sample demo"}
+                    </button>
                     {receiptFile && !receiptLoading && (
                       <button
                         type="button"
@@ -1853,16 +1971,28 @@ function App() {
                       placeholder="Vendor, item, amount, date..."
                     />
                   </label>
-                  <button className="button primary" type="submit" disabled={receiptLoading || !currentCampaign}>
-                    {receiptLoading ? <LoaderCircle size={16} className="spin" /> : <Sparkles size={16} />}
-                    {receiptLoading
-                      ? language === "hi"
-                        ? "समीक्षा जारी..."
-                        : "Reviewing receipt..."
-                      : language === "hi"
-                        ? "चयनित बजट से तुलना करें"
-                        : "Compare with selected budget"}
-                  </button>
+                  <div className="receipt-actions-row">
+                    <button className="button primary" type="submit" disabled={receiptLoading || !currentCampaign}>
+                      {receiptLoading ? <LoaderCircle size={16} className="spin" /> : <Sparkles size={16} />}
+                      {receiptLoading
+                        ? language === "hi"
+                          ? "समीक्षा जारी..."
+                          : "Reviewing receipt..."
+                        : language === "hi"
+                          ? "चयनित बजट से तुलना करें"
+                          : "Compare with selected budget"}
+                    </button>
+                    <button
+                      type="button"
+                      className="sample-demo-pill-btn"
+                      onClick={loadSampleDemoReceipt}
+                      disabled={receiptLoading || !currentCampaign}
+                      title={language === "hi" ? "प्रस्तुति अभ्यास के लिए नमूना रसीद परिणाम" : "Try sample demo receipt for presentation practice"}
+                    >
+                      <Sparkles size={13} />
+                      {language === "hi" ? "प्रस्तुति नमूना रसीद" : "Try sample demo"}
+                    </button>
+                  </div>
                 </form>
               )}
 
@@ -1936,7 +2066,21 @@ function App() {
 
               {/* Comparison Result Card */}
               {receiptResult && (
-                <div className={`receipt-result ${receiptResult.status === "POSSIBLE_MATCH" ? "" : "review"}`}>
+                <div className={`receipt-result ${receiptResult.status === "POSSIBLE_MATCH" ? "" : "review"} ${receiptResult.isSampleDemo ? "sample-demo-card" : ""}`}>
+                  {receiptResult.isSampleDemo && (
+                    <div className="sample-demo-notice-banner" role="alert">
+                      <div className="sample-demo-badge">
+                        <Sparkles size={14} />
+                        <span>SAMPLE DEMO RESULT — NOT A LIVE AI ANALYSIS</span>
+                      </div>
+                      <p>
+                        {language === "hi"
+                          ? "यह प्रस्तुति अभ्यास के लिए एक पूर्व-निर्धारित स्थिर नमूना परिणाम है। यह लाइव AI विश्लेषण नहीं है, ऑडिट लेजर या डेटाबेस में संग्रहीत नहीं किया जाता है, खर्चों को स्वीकृत नहीं करता है, और अभियान की पूर्णता को आगे नहीं बढ़ाता है।"
+                          : "Fixed sample data for demonstration and presentation practice only. This is not a live AI analysis, is not saved to the audit ledger or database, cannot approve expenses, and does not advance campaign completion."}
+                      </p>
+                    </div>
+                  )}
+
                   <div className="result-status-badge">
                     {receiptResult.status === "POSSIBLE_MATCH" ? (
                       <span className="status-badge success">
@@ -2004,7 +2148,11 @@ function App() {
                   </div>
 
                   <div className="storage-status-note">
-                    {storageMode === "mongodb" ? (
+                    {receiptResult.isSampleDemo ? (
+                      <span className="persisted-sample">
+                        <Sparkles size={13} /> {language === "hi" ? "प्रस्तुति नमूना मोड: यह परिणाम सहेजा नहीं गया है और खर्च स्वीकृत नहीं करता है।" : "Presentation demo mode: record is unpersisted and isolated from milestones."}
+                      </span>
+                    ) : storageMode === "mongodb" ? (
                       <span className="persisted-ok">
                         <CheckCircle2 size={13} /> {language === "hi" ? "समीक्षा रिकॉर्ड MongoDB लेजर में स्थायी रूप से सहेजा गया।" : "Review record permanently saved to MongoDB ledger."}
                       </span>

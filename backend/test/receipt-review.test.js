@@ -1,22 +1,25 @@
 process.env.NODE_ENV = "test";
 import { describe, it, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
-import { validateImageFile } from "../src/server.js";
+import { app, validateImageFile } from "../src/server.js";
 import {
   calculateMatchScore,
   compareReceiptWithBudget,
   extractReceiptFromImage,
+  getSampleDemoReceiptReview,
   normalizedWords
 } from "../src/ai.js";
 import {
   clearFallbackReviews,
   closeDB,
   connectDB,
+  getCampaignTimeline,
   getReceiptReviews,
   getStorageMode,
   isDbConnected,
   ReceiptReview,
-  saveReceiptReview
+  saveReceiptReview,
+  validateCampaignEvidenceRef
 } from "../src/db.js";
 import { baselineCampaigns } from "../src/campaigns.js";
 
@@ -310,7 +313,7 @@ describe("Receipt Image Review & Budget Verification Tests", () => {
       }
     });
 
-    it("distinguishes HTTP 429 rate limit / quota exceeded errors", async () => {
+    it("distinguishes HTTP 429 rate limit / quota exceeded errors returning AI_QUOTA_EXHAUSTED", async () => {
       const origKey = process.env.GEMINI_API_KEY;
       process.env.GEMINI_API_KEY = "dummy-test-key";
 
@@ -318,7 +321,7 @@ describe("Receipt Image Review & Budget Verification Tests", () => {
       global.fetch = async () => ({
         ok: false,
         status: 429,
-        text: async () => JSON.stringify({ error: { message: "Resource has been exhausted" } })
+        text: async () => JSON.stringify({ error: { status: "RESOURCE_EXHAUSTED", message: "Resource has been exhausted" } })
       });
 
       try {
@@ -332,11 +335,51 @@ describe("Receipt Image Review & Budget Verification Tests", () => {
           },
           (err) => {
             assert.equal(err.status, 429);
-            assert.equal(err.code, "AI_QUOTA_EXCEEDED");
+            assert.equal(err.code, "AI_QUOTA_EXHAUSTED");
             assert.match(err.message, /quota/i);
+            assert.match(err.message, /RESOURCE_EXHAUSTED/i);
             return true;
           }
         );
+      } finally {
+        global.fetch = origFetch;
+        if (origKey) process.env.GEMINI_API_KEY = origKey;
+        else delete process.env.GEMINI_API_KEY;
+      }
+    });
+
+    it("handles quota exhaustion immediately without entering a retry storm", async () => {
+      const origKey = process.env.GEMINI_API_KEY;
+      process.env.GEMINI_API_KEY = "dummy-test-key";
+
+      let fetchCallCount = 0;
+      const origFetch = global.fetch;
+      global.fetch = async () => {
+        fetchCallCount++;
+        return {
+          ok: false,
+          status: 429,
+          text: async () => JSON.stringify({ error: { code: 429, status: "RESOURCE_EXHAUSTED", message: "Quota exceeded" } })
+        };
+      };
+
+      try {
+        await assert.rejects(
+          async () => {
+            await extractReceiptFromImage({
+              imageBuffer: validJpegBuffer,
+              mimeType: "image/jpeg",
+              filename: "test.jpg"
+            });
+          },
+          (err) => {
+            assert.equal(err.status, 429);
+            assert.equal(err.code, "AI_QUOTA_EXHAUSTED");
+            return true;
+          }
+        );
+        // CRITICAL: Must abort immediately without looping or retrying
+        assert.equal(fetchCallCount, 1, "Must not retry quota-exhausted requests in a loop");
       } finally {
         global.fetch = origFetch;
         if (origKey) process.env.GEMINI_API_KEY = origKey;
@@ -612,6 +655,56 @@ describe("Receipt Image Review & Budget Verification Tests", () => {
 
       // Cleanup
       await ReceiptReview.deleteMany({ filename: "mongo-test-receipt.jpg" });
+    });
+  });
+
+  describe("Phase 6: Sample Presentation Demo Mode & Timeline Isolation", () => {
+    it("provides fixed sample demo receipt with required visual label and un-persisted metadata", () => {
+      const demoResult = getSampleDemoReceiptReview("community-water-filter");
+
+      assert.equal(demoResult.isSampleDemo, true);
+      assert.equal(demoResult.persisted, false);
+      assert.equal(demoResult.storage, "transient-demo-memory");
+      assert.ok(demoResult.extractedData);
+      assert.equal(demoResult.extractedData.vendor, "Clean Water Supply & Testing Co.");
+      assert.equal(demoResult.extractedData.totalAmount, 135.0);
+      assert.equal(demoResult.review.matchedBudgetItem, "Water quality testing");
+      assert.equal(demoResult.review.status, "POSSIBLE_MATCH");
+      assert.equal(demoResult.review.humanReviewStatus, "UNREVIEWED");
+
+      // CRITICAL: Visual label and disclaimers must be present
+      assert.ok(demoResult.review.flags.includes("SAMPLE DEMO RESULT — NOT A LIVE AI ANALYSIS"));
+      assert.match(demoResult.review.explanation, /SAMPLE DEMO RESULT — NOT A LIVE AI ANALYSIS/);
+    });
+
+    it("ensures sample demo receipt is NOT saved in persisted reviews", async () => {
+      // Clear fallback reviews
+      clearFallbackReviews();
+
+      // Retrieve sample demo data
+      const demoResult = getSampleDemoReceiptReview("community-water-filter");
+      assert.equal(demoResult.isSampleDemo, true);
+
+      // Verify that getReceiptReviews does NOT contain this sample review
+      const reviews = await getReceiptReviews("community-water-filter");
+      const foundSample = reviews.find((r) => r.id === demoResult.review.id || r.source === "presentation-demo-sample");
+      assert.equal(foundSample, undefined, "Sample demo receipt must not be stored in persistent or fallback reviews");
+    });
+
+    it("strictly isolates sample demo receipt from expense approval and campaign completion", async () => {
+      clearFallbackReviews();
+      const demoResult = getSampleDemoReceiptReview("community-water-filter");
+
+      // Verify validateCampaignEvidenceRef rejects sample demo reference
+      const validation = await validateCampaignEvidenceRef("community-water-filter", demoResult.review.id);
+      assert.equal(validation.valid, false, "Sample demo receipt ID cannot validate as authentic campaign evidence");
+      assert.match(validation.error, /does not point to any registered evidence record/i);
+
+      // Verify timeline does not consider the campaign completed
+      const timeline = await getCampaignTimeline("community-water-filter");
+      assert.notEqual(timeline.currentMilestone, "COMPLETED");
+      assert.equal(timeline.milestoneSummary.completed, false);
+      assert.equal(timeline.totalApprovedExpenses, 0, "Sample demo receipt must not increment approved expenses");
     });
   });
 });
