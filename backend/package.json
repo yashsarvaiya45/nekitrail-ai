@@ -1,0 +1,17 @@
+{
+  "name": "nekitrail-ai-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test test/persistence.test.js test/receipt-review.test.js test/timeline.test.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mongoose": "^9.11.2"
+  }
+}
